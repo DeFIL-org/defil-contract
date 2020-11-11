@@ -8,7 +8,6 @@ const {
 
 const {
   makeDeFIL,
-  userAccounts,
   balanceOf,
   totalSupply,
   withTotalSupplyChecked,
@@ -28,10 +27,12 @@ async function preBorrow(defil, borrower, borrowAmount, collaterals) {
 }
 
 async function pretendBorrow(defil, borrower, accountIndex, marketIndex, principalRaw, blockNumber = 2e7) {
-  await defil.harnessSetTotalBorrows(etherUnsigned(principalRaw));
-  await defil.harnessSetAccountBorrows(borrower, etherUnsigned(principalRaw), etherUnsigned(accountIndex));
+  await defil.harnessSetTotalBorrows(principalRaw);
+  await defil.harnessSetAccountBorrows(borrower, principalRaw, etherUnsigned(accountIndex));
   await defil.harnessSetBorrowIndex(etherUnsigned(marketIndex));
   await defil.harnessSetAccrualBlockNumber(etherUnsigned(blockNumber));
+  await defil.harnessSetDflAccrualBlockNumber(etherUnsigned(blockNumber));
+  await defil.harnessSetNextHalveBlockNumber(etherUnsigned(blockNumber));
   await defil.harnessSetBlockNumber(etherUnsigned(blockNumber));
 }
 
@@ -51,9 +52,9 @@ async function preRepay(defil, benefactor, borrower, repayAmount) {
 contract('DeFIL', function (accounts) {
   let defil, borrower, benefactor;
   beforeEach(async () => {
-    defil = await makeDeFIL();
-    borrower = userAccounts(accounts)[0];
-    benefactor = userAccounts(accounts)[1];
+    defil = await makeDeFIL(accounts);
+    borrower = defil.userAccounts[0];
+    benefactor = defil.userAccounts[1];
   });
 
   describe('borrowFresh', () => {
@@ -84,7 +85,7 @@ contract('DeFIL', function (accounts) {
       assert.ok((await balanceOf(defil.eFIL, borrower)).isEqualTo(borrowAmount), "eFIL balance mismatch");
     });
 
-    it("Should failed if not allowed", async () => {
+    it("fails if not allowed", async () => {
       await defil._setBorrowAllowed(false);
       const res = await defil.harnessBorrowFresh(borrower, borrowAmount);
       truffleAssert.eventEmitted(res, 'Failure', (ev) => {
@@ -92,12 +93,12 @@ contract('DeFIL', function (accounts) {
       });
     });
 
-    it("Should success if reset to allowed", async () => {
+    it("success if reset to allowed", async () => {
       const res = await defil.harnessBorrowFresh(borrower, borrowAmount);
       truffleAssert.eventEmitted(res, 'Borrow');
     });
 
-    it("Should success if borrow max available", async () => {
+    it("success if borrow max available", async () => {
       const res = await defil.harnessBorrowFresh(borrower, UInt256Max());
       truffleAssert.eventEmitted(res, 'Borrow', (ev) => {
         return ev.borrower == borrower
@@ -107,7 +108,7 @@ contract('DeFIL', function (accounts) {
       });
     });
 
-    it("Should success if borrow multiple times", async () => {
+    it("success if borrow multiple times", async () => {
       const dividedAmount = borrowAmount.dividedBy(4);
       await defil.harnessBorrowFresh(borrower, dividedAmount);
       const res = await defil.harnessBorrowFresh(borrower, UInt256Max());
@@ -119,12 +120,48 @@ contract('DeFIL', function (accounts) {
       });
     });
 
-    it("Should failed if insufficient balance of eFIL", async () => {
-      await defil.eFIL.harnessSetBalance(defil.address, 0);
+    it("fails if insufficient collaterals", async () => {
+      await defil.harnessSetCollaterals(borrower, borrowAmount.minus(1));
       const res = await defil.harnessBorrowFresh(borrower, borrowAmount);
+      truffleAssert.eventEmitted(res, 'Failure', (ev) => {
+        return ev.error == 9 && ev.info == 13; // Error.INSUFFICIENT_COLLATERAL, FailureInfo.BORROW_INSUFFICIENT_COLLATERAL
+      });
+    });
+
+    it("fails if insufficient eFIL", async () => {
+      const res = await defil.harnessBorrowFresh(borrower, borrowAmount.plus(1));
       truffleAssert.eventEmitted(res, 'Failure', (ev) => {
         return ev.error == 6 && ev.info == 9; // Error.TOKEN_INSUFFICIENT_CASH, FailureInfo.BORROW_CASH_NOT_AVAILABLE
       });
+    });
+
+    // it("fails if calculating account new total borrow balance overflows", async () => {  // javascript是一坨屎
+      // await pretendBorrow(defil, borrower, 1e-18, 1e-18, UInt256Max());
+      // const res = await defil.harnessBorrowFresh(borrower, borrowAmount);
+      // truffleAssert.eventEmitted(res, 'Failure', (ev) => {
+        // return ev.error == 4 && ev.info == 11; // Error.MATH_ERROR, FailureInfo.BORROW_NEW_ACCOUNT_BORROW_BALANCE_CALCULATION_FAILED
+      // });
+    // });
+
+    it("fails if calculation of new total borrow balance overflows", async () => {
+      await defil.harnessSetTotalBorrows(UInt256Max())
+      const res = await defil.harnessBorrowFresh(borrower, borrowAmount);
+      truffleAssert.eventEmitted(res, 'Failure', (ev) => {
+        return ev.error == 4 && ev.info == 10; // Error.MATH_ERROR, FailureInfo.BORROW_NEW_TOTAL_BALANCE_CALCULATION_FAILED
+      });
+    });
+  });
+
+  describe('borrow', () => {
+    beforeEach(async () => {
+      await preBorrow(defil, borrower, borrowAmount, borrowAmount)
+    });
+
+    it("emits AccrueInterest/AccrueDFL events", async () => {
+      await defil.harnessFastForward(1);
+      const res = await defil.borrow(borrowAmount, {from: borrower});
+      truffleAssert.eventEmitted(res, 'AccrueInterest');
+      truffleAssert.eventEmitted(res, 'AccrueDFL');
     });
   });
 
@@ -162,7 +199,7 @@ contract('DeFIL', function (accounts) {
           assert.ok((await balanceOf(defil.eFIL, payer)).isEqualTo(etherUnsigned(0)), "eFIL balance mismatch");
         });
 
-        it("Should failed if insufficient approve", async () => {
+        it("fails if insufficient approve", async () => {
           await preApprove(defil.eFIL, payer, defil.address, repayAmount.dividedBy(2));
           await truffleAssert.fails(
               defil.harnessRepayBorrowFresh(payer, borrower, repayAmount),
@@ -171,7 +208,7 @@ contract('DeFIL', function (accounts) {
           );
         });
 
-        it("Should failed if insufficient balance", async () => {
+        it("fails if insufficient balance", async () => {
           await defil.eFIL.harnessSetBalance(payer, repayAmount.dividedBy(2));
           await truffleAssert.fails(
               defil.harnessRepayBorrowFresh(payer, borrower, repayAmount),
@@ -180,6 +217,33 @@ contract('DeFIL', function (accounts) {
           );
         });
       });
+    });
+  });
+
+  describe('reayBorrow', () => {
+    beforeEach(async () => {
+      await preRepay(defil, benefactor, borrower, repayAmount);
+    });
+
+    it("emits AccrueInterest/AccrueDFL events", async () => {
+      await defil.harnessFastForward(1);
+      const res = await defil.repayBorrow(repayAmount, {from: borrower});
+      truffleAssert.eventEmitted(res, 'AccrueInterest');
+      truffleAssert.eventEmitted(res, 'AccrueDFL');
+      truffleAssert.eventEmitted(res, 'RepayBorrow');
+    });
+  });
+
+  describe('reayBorrowBehalf', () => {
+    beforeEach(async () => {
+      await preRepay(defil, benefactor, borrower, repayAmount);
+    });
+
+    it("emits AccrueInterest/AccrueDFL events", async () => {
+      await defil.harnessFastForward(1);
+      const res = await defil.repayBorrowBehalf(borrower, repayAmount, {from: benefactor});
+      truffleAssert.eventEmitted(res, 'AccrueInterest');
+      truffleAssert.eventEmitted(res, 'AccrueDFL');
     });
   });
 });

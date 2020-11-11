@@ -7,7 +7,6 @@ const {
 
 const {
   makeDeFIL,
-  userAccounts,
   balanceOf,
   totalSupply,
   withTotalSupplyChecked,
@@ -20,9 +19,9 @@ contract('DeFIL', function (accounts) {
   let exchangeRate;
   let minter;
   beforeEach(async () => {
-    defil = await makeDeFIL();
+    defil = await makeDeFIL(accounts);
     exchangeRate = await defil.initialExchangeRateMantissa();
-    minter = userAccounts(accounts)[0];
+    minter = defil.userAccounts[0];
   });
 
   describe('mint', () => {

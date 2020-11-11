@@ -12,14 +12,15 @@ const DeFIL = artifacts.require("DeFILHarness");
 const EFILToken = artifacts.require("StandardTokenHarness");
 const MFILToken = artifacts.require("StandardTokenHarness");
 const LPToken = artifacts.require("StandardTokenHarness");
-const DFLToken = artifacts.require("DFL");
+const DFLToken = artifacts.require("DFLHarness");
 const StakingDFL = artifacts.require("StakingDFL");
 const StakingLP = artifacts.require("StakingLP");
 
 const zeroAmount = new BigNumber(0);
 
-async function makeDeFIL() {
+async function makeDeFIL(accounts) {
   const defil = await DeFIL.deployed();
+  const [owner, minerLeagueAddress, operatorAddress, technicalAddress, undistributedAddress, ...userAccounts] = accounts;
 
   return Object.assign(defil, {
     interestRateModel: await WhitePaperInterestRateModel.at(await defil.interestRateModel()),
@@ -28,15 +29,13 @@ async function makeDeFIL() {
     dfl: await DFLToken.at(await defil.dflToken()),
     stakingDFL: await StakingDFL.at(await defil.reservesOwner()),
     stakingLP: await StakingDFL.at(await defil.uniswapAddress()),
-    minerLeagueAddress: defil.minerLeagueAddress,
-    operatorAddress: defil.operatorAddress,
-    technicalAddress: defil.technicalAddress,
-    undistributedAddress: defil.undistributedAddress,
+    owner,
+    minerLeagueAddress,
+    operatorAddress,
+    technicalAddress,
+    undistributedAddress,
+    userAccounts,
   });
-}
-
-function userAccounts(accounts) {
-  return accounts.slice(5, accounts.length);
 }
 
 async function balanceOf(token, account) {
@@ -65,7 +64,6 @@ async function withTotalSupplyChecked(token, delta, action) {
 
 module.exports = {
   makeDeFIL,
-  userAccounts,
 
   zeroAmount,
   balanceOf,

@@ -7,7 +7,6 @@ const {
 
 const {
   makeDeFIL,
-  userAccounts,
   balanceOf,
   zeroAmount,
 } = require('./Helper.js');
@@ -33,8 +32,8 @@ contract('DeFIL', function (accounts) {
   let exchangeRate;
   let collateralizer;
   beforeEach(async () => {
-    defil = await makeDeFIL();
-    collateralizer = userAccounts(accounts)[0];
+    defil = await makeDeFIL(accounts);
+    collateralizer = defil.userAccounts[0];
   });
 
   describe('collateralize', () => {
