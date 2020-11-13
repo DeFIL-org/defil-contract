@@ -17,12 +17,15 @@ const minSpeed = etherExp(0.00017);
 const halvePeriod = 576000;
 const initSupplyIndex = etherDouble(1);
 const initBlockNumber = 1;
+const uniswapPercetage = etherExp(0.25);
+const minerLeaguePercentage = etherExp(0.1);
+const operatorPercentage = etherExp(0.03);
+const technicalPercentage = etherExp(0.02);
+const supplyPercentage = etherExp(0.6);
 
 async function preAccrue(defil, blockNumber) {
   await defil.dfl.harnessSetBalance(defil.address, 0);
   await defil.harnessSetTotalSupply(0);
-  const percentage = etherMantissa(2, 1e17);
-  await defil._setDFLPercentages(percentage, percentage, percentage, percentage);
   await defil.harnessSetDflAccrued(defil.stakingLP.address, 0);
   await defil.harnessSetDflAccrued(defil.minerLeagueAddress, 0);
   await defil.harnessSetDflAccrued(defil.operatorAddress, 0);
@@ -37,6 +40,13 @@ async function preAccrue(defil, blockNumber) {
 
 async function dflAccrued(defil, account) {
   return etherUnsigned(await defil.dflAccrued(account));
+}
+
+function getParts(delta) {
+  const partOf = (percentage) => {
+    return delta.multipliedBy(percentage).dividedBy(etherExp(1));
+  }
+  return [partOf(uniswapPercetage), partOf(operatorPercentage), partOf(minerLeaguePercentage), partOf(technicalPercentage), partOf(supplyPercentage)];
 }
 
 contract('DeFIL', function (accounts) {
@@ -70,23 +80,23 @@ contract('DeFIL', function (accounts) {
       await defil.harnessSetTotalSupply(0);
       const res = await defil.harnessAccrueDFL();
       const delta = etherUnsigned(await defil.currentSpeed()).multipliedBy(10);
-      const avgPart = delta.dividedBy(5);
-      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(avgPart));
+      const [uniswapPart, operatorPart, minerLeaguePart, technicalPart, supplyPart] = getParts(delta);
+      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(uniswapPart));
+      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(operatorPart));
+      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(minerLeaguePart));
+      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(technicalPart));
+      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(supplyPart));
 
       assert.ok((await balanceOf(defil.dfl, defil.address)).isEqualTo(delta));
       assert.ok(etherUnsigned(await defil.dflSupplyIndex()).isEqualTo(initSupplyIndex));
       assert.ok(etherUnsigned(await defil.dflAccrualBlockNumber()).isEqualTo(11));
 
       truffleAssert.eventEmitted(res, 'AccrueDFL', (ev) => {
-        return etherUnsigned(ev.uniswapPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.minerLeaguePart).isEqualTo(avgPart)
-              && etherUnsigned(ev.operatorPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.technicalPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.supplyPart).isEqualTo(avgPart)
+        return etherUnsigned(ev.uniswapPart).isEqualTo(uniswapPart)
+              && etherUnsigned(ev.minerLeaguePart).isEqualTo(minerLeaguePart)
+              && etherUnsigned(ev.operatorPart).isEqualTo(operatorPart)
+              && etherUnsigned(ev.technicalPart).isEqualTo(technicalPart)
+              && etherUnsigned(ev.supplyPart).isEqualTo(supplyPart)
               && etherUnsigned(ev.dflSupplyIndex).isEqualTo(initSupplyIndex);
       });
     });
@@ -97,42 +107,42 @@ contract('DeFIL', function (accounts) {
       await defil.harnessSetTotalSupply(0);
       const res = await defil.harnessAccrueDFL();
       const delta1 = etherUnsigned(initSpeed).multipliedBy(halvePeriod);
-      const avgPart1 = delta1.dividedBy(5);
-      const delta2 = etherUnsigned(await defil.currentSpeed()).multipliedBy(beyondBlockNumber); // halved
-      const avgPart2 = delta2.dividedBy(5);
-      const delta = delta1.plus(delta2);
-      const avgPart = delta.dividedBy(5);
-      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(avgPart));
+      const [uniswapPart1, operatorPart1, minerLeaguePart1, technicalPart1, supplyPart1] = getParts(delta1)
 
-      // console.log((await balanceOf(defil.dfl, defil.address)).toString());
-      // console.log(etherUnsigned(await defil.currentSpeed()).toString());
+      const delta2 = etherUnsigned(await defil.currentSpeed()).multipliedBy(beyondBlockNumber); // halved
+      const [uniswapPart2, operatorPart2, minerLeaguePart2, technicalPart2, supplyPart2] = getParts(delta2)
+
+      const delta = delta1.plus(delta2);
+      const [uniswapPart, operatorPart, minerLeaguePart, technicalPart, supplyPart] = getParts(delta)
+      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(uniswapPart));
+      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(operatorPart));
+      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(minerLeaguePart));
+      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(technicalPart));
+      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(supplyPart));
+
       assert.ok((await balanceOf(defil.dfl, defil.address)).isEqualTo(delta));
       assert.ok(etherUnsigned(await defil.dflSupplyIndex()).isEqualTo(initSupplyIndex));
       assert.ok(etherUnsigned(await defil.dflAccrualBlockNumber()).isEqualTo(halvePeriod + beyondBlockNumber + 1));
 
       truffleAssert.eventEmitted(res, 'AccrueDFL', (ev) => {
-        return etherUnsigned(ev.uniswapPart).isEqualTo(avgPart1)
-              && etherUnsigned(ev.minerLeaguePart).isEqualTo(avgPart1)
-              && etherUnsigned(ev.operatorPart).isEqualTo(avgPart1)
-              && etherUnsigned(ev.technicalPart).isEqualTo(avgPart1)
-              && etherUnsigned(ev.supplyPart).isEqualTo(avgPart1)
+        return etherUnsigned(ev.uniswapPart).isEqualTo(uniswapPart1)
+              && etherUnsigned(ev.minerLeaguePart).isEqualTo(minerLeaguePart1)
+              && etherUnsigned(ev.operatorPart).isEqualTo(operatorPart1)
+              && etherUnsigned(ev.technicalPart).isEqualTo(technicalPart1)
+              && etherUnsigned(ev.supplyPart).isEqualTo(supplyPart1)
               && etherUnsigned(ev.dflSupplyIndex).isEqualTo(initSupplyIndex);
       });
       truffleAssert.eventEmitted(res, 'AccrueDFL', (ev) => {
-        return etherUnsigned(ev.uniswapPart).isEqualTo(avgPart2)
-              && etherUnsigned(ev.minerLeaguePart).isEqualTo(avgPart2)
-              && etherUnsigned(ev.operatorPart).isEqualTo(avgPart2)
-              && etherUnsigned(ev.technicalPart).isEqualTo(avgPart2)
-              && etherUnsigned(ev.supplyPart).isEqualTo(avgPart2)
+        return etherUnsigned(ev.uniswapPart).isEqualTo(uniswapPart2)
+              && etherUnsigned(ev.minerLeaguePart).isEqualTo(minerLeaguePart2)
+              && etherUnsigned(ev.operatorPart).isEqualTo(operatorPart2)
+              && etherUnsigned(ev.technicalPart).isEqualTo(technicalPart2)
+              && etherUnsigned(ev.supplyPart).isEqualTo(supplyPart2)
               && etherUnsigned(ev.dflSupplyIndex).isEqualTo(initSupplyIndex);
       });
     });
 
-    it("success accrued if beyond last blockNumber to be mined", async () => {
+    it("success accrued if beyond the last accrue block number", async () => {
       await defil.harnessFastForward(10944000 + 10);
       await defil.harnessSetTotalSupply(0);
       const res = await defil.harnessAccrueDFL();
@@ -143,12 +153,12 @@ contract('DeFIL', function (accounts) {
       const totalDFL = await balanceOf(defil.dfl, defil.address);
       assert.ok(totalDFL.dividedBy(1e18).toFixed(0) == "100000000");
 
-      const avgPart = totalDFL.dividedBy(5);
-      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(avgPart));
-      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(avgPart));
+      const [uniswapPart, operatorPart, minerLeaguePart, technicalPart, supplyPart] = getParts(totalDFL)
+      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(uniswapPart));
+      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(operatorPart));
+      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(minerLeaguePart));
+      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(technicalPart));
+      assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(supplyPart));
     });
 
     it("success accrued if total supply is not zero", async () => {
@@ -157,20 +167,24 @@ contract('DeFIL', function (accounts) {
       await defil.harnessFastForward(10);
       const res = await defil.harnessAccrueDFL();
       const delta = etherUnsigned(await defil.currentSpeed()).multipliedBy(10);
-      const avgPart = delta.dividedBy(5);
+      const [uniswapPart, operatorPart, minerLeaguePart, technicalPart, supplyPart] = getParts(delta)
+      assert.ok((await dflAccrued(defil, defil.stakingLP.address)).isEqualTo(uniswapPart));
+      assert.ok((await dflAccrued(defil, defil.operatorAddress)).isEqualTo(operatorPart));
+      assert.ok((await dflAccrued(defil, defil.minerLeagueAddress)).isEqualTo(minerLeaguePart));
+      assert.ok((await dflAccrued(defil, defil.technicalAddress)).isEqualTo(technicalPart));
       assert.ok((await dflAccrued(defil, defil.undistributedAddress)).isEqualTo(0));
 
       assert.ok((await balanceOf(defil.dfl, defil.address)).isEqualTo(delta));
-      const expectSupplyIndex = etherDouble(avgPart).dividedBy(totalSupply).plus(initSupplyIndex)
+      const expectSupplyIndex = etherDouble(supplyPart).dividedBy(totalSupply).plus(initSupplyIndex)
       assert.ok(etherUnsigned(await defil.dflSupplyIndex()).isEqualTo(expectSupplyIndex));
       assert.ok(etherUnsigned(await defil.dflAccrualBlockNumber()).isEqualTo(11));
 
       truffleAssert.eventEmitted(res, 'AccrueDFL', (ev) => {
-        return etherUnsigned(ev.uniswapPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.minerLeaguePart).isEqualTo(avgPart)
-              && etherUnsigned(ev.operatorPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.technicalPart).isEqualTo(avgPart)
-              && etherUnsigned(ev.supplyPart).isEqualTo(avgPart)
+        return etherUnsigned(ev.uniswapPart).isEqualTo(uniswapPart)
+              && etherUnsigned(ev.minerLeaguePart).isEqualTo(minerLeaguePart)
+              && etherUnsigned(ev.operatorPart).isEqualTo(operatorPart)
+              && etherUnsigned(ev.technicalPart).isEqualTo(technicalPart)
+              && etherUnsigned(ev.supplyPart).isEqualTo(supplyPart)
               && etherUnsigned(ev.dflSupplyIndex).isEqualTo(expectSupplyIndex);
       });
     });
